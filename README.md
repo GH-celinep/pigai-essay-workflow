@@ -28,6 +28,22 @@ mkdir -p ~/.workbuddy/skills && curl -L https://codeload.github.com/GH-celinep/p
 两条命令都会把 `pigai-essay-workflow/` 直接放进 `~/.workbuddy/skills/`（Windows 为
 `%USERPROFILE%\.workbuddy\skills\`）。仓库里的 `install.sh` / `install.ps1` 是手动下载仓库目录后的备选安装脚本，日常用上面的命令即可。
 
+### 怎么确认装好了
+
+**Windows**（跑下面这条，能看到 `SKILL.md`、`references\`、`references\operations.md` 三样就是装好了）：
+
+```powershell
+Get-ChildItem -Recurse "$env:USERPROFILE\.workbuddy\skills\pigai-essay-workflow"
+```
+
+**macOS / Linux**：
+
+```bash
+ls -R ~/.workbuddy/skills/pigai-essay-workflow
+```
+
+最直接的验证：**重开 WorkBuddy，说一句「开始帮我写作文」**——skill 被自动加载并开始跑流程，就说明装好了。
+
 ### 装好后怎么运行（两种方式都行）
 
 1. **说触发语**：重开 WorkBuddy，直接说「开始帮我写作文」——skill 会自动加载并跑全流程。
