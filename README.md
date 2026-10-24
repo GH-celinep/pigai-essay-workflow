@@ -10,16 +10,16 @@
 
 ### macOS / Linux（一条命令）
 
-把下面 `YOUR_USERNAME` 换成你实际的 GitHub 用户名，整行复制运行：
+把下面 `GH-celinep` 换成你实际的 GitHub 用户名，整行复制运行：
 
 ```bash
-git clone --depth 1 https://github.com/YOUR_USERNAME/pigai-essay-workflow.git /tmp/pigai && bash /tmp/pigai/install.sh && rm -rf /tmp/pigai
+git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git /tmp/pigai && bash /tmp/pigai/install.sh && rm -rf /tmp/pigai
 ```
 
 ### Windows（一条 PowerShell 命令）
 
 ```powershell
-git clone --depth 1 https://github.com/YOUR_USERNAME/pigai-essay-workflow.git $env:TEMP/pigai; powershell -ExecutionPolicy Bypass -File $env:TEMP/pigai/install.ps1; Remove-Item -Recurse -Force $env:TEMP/pigai
+git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git $env:TEMP/pigai; powershell -ExecutionPolicy Bypass -File $env:TEMP/pigai/install.ps1; Remove-Item -Recurse -Force $env:TEMP/pigai
 ```
 
 安装脚本会把 `pigai-essay-workflow/` 复制到 `~/.workbuddy/skills/`（Windows 为
@@ -40,25 +40,6 @@ git clone --depth 1 https://github.com/YOUR_USERNAME/pigai-essay-workflow.git $e
 
 第一次运行建议先让 WorkBuddy 跑一下 `browsers_list` 确认它探测到的 `browser_id`
 （skill 已改为运行时自动获取，不再写死，所以不同机器都能用）。
-
----
-
-## 给仓库 owner：如何发布到 GitHub
-
-本仓库已准备好（含 `pigai-essay-workflow/` 文件夹、`install.sh`、`install.ps1`）。
-发布只需：
-
-1. 在 github.com 新建一个空仓库，命名为 `pigai-essay-workflow`；
-2. 在本仓库目录下执行（把 `YOUR_USERNAME` 换成你的用户名）：
-
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/pigai-essay-workflow.git
-git push -u origin main
-```
-
-（若装了 GitHub CLI，也可用 `gh repo create pigai-essay-workflow --public --source=. --push` 一步到位。）
-
-发布后把上面的「一条命令」里的 `YOUR_USERNAME` 替换成你的用户名，发给朋友即可。
 
 ---
 
