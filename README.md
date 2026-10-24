@@ -10,7 +10,7 @@
 
 ### macOS / Linux（一条命令）
 
-把下面 `GH-celinep` 换成你实际的 GitHub 用户名，整行复制运行：
+整行复制运行：
 
 ```bash
 git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git /tmp/pigai && bash /tmp/pigai/install.sh && rm -rf /tmp/pigai
