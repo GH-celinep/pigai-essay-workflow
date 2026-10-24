@@ -1,0 +1,148 @@
+---
+name: pigai-essay-workflow
+description: Automate the full 批改网 (pigai.org) English-essay workflow. Triggered by "开始帮我写作文", it automatically opens the browser, navigates to pigai.org, picks the nearest-deadline unfinished assignment, writes the essay, submits it, then fixes every red error and applies every recommended expression via each sentence's per-sentence "修改" popup. Use this skill when the user says "开始帮我写作文" / "帮我写作文" / "提交批改网作文" or otherwise wants an essay drafted, submitted, and polished on pigai.org. Do NOT use this skill for the 体检报告 (health-report) statistics — fixes are applied only through per-sentence edit popups.
+agent_created: true
+---
+
+# 批改网英文作文工作流 (Pigai Essay Workflow)
+
+## Overview
+
+On the trigger phrase **"开始帮我写作文"**, the agent auto-opens the browser — launching the browser app itself if no window is open — and navigates to pigai.org; the user does not need to pre-open anything. This skill encodes a fixed, repeatable browser workflow for 批改网 (pigai.org): draft an English
+essay for the user's assignment, submit it, then iterate on the system's per-sentence feedback
+(red errors + recommended expressions) using the "修改" popup beside each sentence. It is
+operational knowledge distilled from a fully executed run, including the non-obvious DOM and
+pigai-UI pitfalls that break naive automation.
+
+## When to use
+
+- User says "开始帮我写作文" (primary trigger), "帮我写作文", "帮我把这篇提交到批改网", or similar — the agent then auto-opens pigai.org and runs the full flow without any manual page setup.
+- User wants an existing pigai essay re-checked / fixed via the per-sentence edit buttons.
+- Do NOT trigger for general English writing help that has nothing to do with pigai.org.
+
+## Prerequisites
+
+- Browser control via the `mcp__browser__*` tools (DOM-CUA capable). 批改网 runs in the user's
+  **Edge extension** (browser_id obtained from `browsers_list`; for this author it happens to be 2).
+  Reconnect each session:
+  1. `mcp__browser__browsers_list` → note YOUR browser_id (commonly 2, but use whatever id is returned).
+  2. `mcp__browser__user_open_tabs` (browser_id=<id>) → list open tabs.
+  3. `mcp__browser__tabs_list` / `mcp__browser__tabs_claim` → claim the target tab.
+  4. **Reconnect routine (when the controlled tab drops):** after a save/navigation
+     `tabs_list` may return `[]`. Do NOT restart — recover: `browsers_list` → `user_open_tabs`
+     → `tabs_claim` again (URL preserved; display may show only the base domain). A tab created
+     via `tabs_new` is usually already controlled (no claim needed); only pre-existing user tabs
+     from `user_open_tabs` require claiming. See `references/operations.md` §1.
+- Load `mcp__browser__dom_cua_get_visible_dom`, `dom_cua_click`, `dom_cua_type`,
+  `dom_cua_keypress`, `cua_scroll`, `tab_goto`, `tab_screenshot`, `tabs_claim` as needed.
+- Detailed pigai URL patterns, button-locating tricks, and gotchas live in
+  `references/operations.md` — read it before the first run of a session.
+
+## Workflow (7 steps)
+
+### Step 1 — 自动打开浏览器并进入 批改网
+- 目标：说出触发语后，agent 自己把浏览器打开并导航到批改网，**即使浏览器当前没有窗口也能自动启动程序**，用户无需预开任何页面。
+- 1. `mcp__browser__browsers_list` 列出可用浏览器（记下 browser_id；**首选带 user_tabs 的 Edge 扩展**，因为它保存着你的登录态；其次才是内置浏览器 `browser_id=1`）。
+- 2. 尝试拿到可操作标签：
+  - 若浏览器支持 user_tabs：`user_open_tabs` 看是否已有批改网标签 → 有则 `tabs_claim` 复用。
+  - 否则用 `tabs_new`（url=`https://www.pigai.org/index.php?c=write`）开一个 agent 控制的新标签。
+- 3. **若 `tabs_new` 返回 "No current window"（目标浏览器没有活动窗口）**——这是最常见的中断点，自动处理，不要停：
+  - 用 `Bash` / `PowerShell` 启动浏览器程序：
+    - Windows (Edge): `cmd /c start msedge` 或 `PowerShell: Start-Process msedge`
+    - macOS: `open -a "Microsoft Edge"`
+    - Linux: `microsoft-edge`
+  - 等待 3–5 秒让扩展连上，再 `browsers_list` 重新探测，回到第 2 步。⚠️ 首轮重试可能仍报
+    "No current window"（扩展尚未连上），再等 2–3 秒重试一次即可。`tabs_new` 成功后该标签通常
+    已是**受控标签**，无需再 `tabs_claim`，直接操作。
+  - 若启动后 `tabs_new` 仍失败，回退到内置浏览器（`browser_id=1`，desktop 类型）：`tabs_new` 开标签 goto pigai.org。注意内置浏览器**没有你的登录态**，会停在登录页——此时提示用户在该浏览器登录批改网后再继续。
+- 4. 进入后页面有两个 tab：**已完成** (`/index.php?c=write`) 和 **未完成** (`/index.php?c=write&a=waitComplete`)。
+- 备选（当直接 URL 不可达时）：用搜索引擎搜"批改网"，从结果进入官网 `pigai.org`，再走上面的"我的作文"路径。
+
+### Step 2 — Pick the assignment (algorithm)
+- Go to **未完成** (`a=waitComplete`). ⚠️ The visible-DOM snapshot often **omits the deadline
+  text** (it gets truncated). Take a `tab_screenshot` and read the 作业号 / 标题 / 截止时间
+  columns from the image to get the full list.
+- Sort candidates by deadline ascending. Then, from the nearest, verify each one is open:
+  `tab_goto` `?c=v2&a=write&rid=<rid>`.
+  - If it redirects to `?c=v2&a=wait&rid=<rid>` ("开始时间为 … 距离写作开始时间还有 N天"),
+    the essay is **not open yet** — record its start time and move to the next-nearest deadline.
+  - The first `rid` whose writing page actually loads (title + requirements + body textarea
+    visible) is the target. Proceed with it.
+  - ⚠️ 开始时间 ≈ 截止前 6 天, so an essay can have the nearest deadline yet still be locked.
+    Never assume "nearest deadline = writable"; always confirm via the redirect check.
+- Read the assignment requirements: title, and especially the **word-count range** (e.g.
+  120–180). This bounds the draft.
+
+### Step 3 — Write the essay (AI drafts it)
+- Compose an English essay that satisfies the prompt and the word-count range.
+- ⚠️ **AI-generation detection:** the assignment has "AI生成检测" enabled and the teacher can see
+  generation traces. Draft with this in mind but do NOT try to evade the detector. Whether the
+  final submission stands is the user's call (they do a final manual review afterward).
+
+### Step 4 — Type it in and submit
+- On the writing page, the body is a `<textarea name="contents">`. 批改网 forbids paste
+  ("正文禁止粘贴") — **use `dom_cua_type` to key the text in character by character**, never Ctrl+V.
+- Click **提交作文** (submit) directly. Per the user's standing instruction, do NOT stop to ask
+  for confirmation before submitting.
+- If the visible word count does not refresh after typing, click the body once, type a space,
+  then backspace (the counter depends on keyup events).
+
+### Step 5 — Reach the report page
+- After submission, open the report from **我的作文 → 已完成 → 查看** for that `rid`.
+- Report URL pattern: `https://www.pigai.org/index.php?c=v2&a=view&eid=<eid>&rid=<rid>`
+  (the `eid` appears in the 已完成 list links).
+- ⚠️ The "查看草稿" page (`/?c=v2&a=caogao&rid=`) shows **pre-submission autosave drafts, not the
+  current version** — ignore it for checking the live result.
+
+### Step 6 — Fix every sentence via its "修改" popup
+Follow the exact protocol in `references/operations.md` §11 (per-sentence edit). In short:
+1. **Re-scroll** to the target sentence — every "保存分析" jumps the page to the top and
+   re-renders, so previous-snapshot button nodes are invalid; always re-scroll then re-snapshot.
+2. **Snapshot** DOM; locate the 修改 button by matching its paired 去提问 `con=` text (§3).
+3. **Click 修改.** If the popup does not open, re-snapshot and click again (occasional race).
+4. In the popup `<textarea name="now_snt">`: click, `Ctrl+A`, then `dom_cua_type` the corrected
+   sentence — **keep the original leading space** (dropping it fuses the prior period, e.g.
+   `lecture.Minor`, triggering a 标点警示).
+5. **Re-snapshot DOM** (the 保存分析 button is now stale) and click 保存分析.
+6. **Re-snapshot to verify**: confirm the new wording landed and no new 标点警示 appeared. If a
+   warning shows, immediately re-edit that sentence to restore the lost leading space.
+- Handle two kinds of feedback:
+  - **Red errors** (拼写/搭配/句法/标点): rewrite the sentence to clear them.
+  - **推荐表达** (recommended expressions): apply the suggested wording, BUT judge first — some
+    are mechanically wrong (e.g. "save → set aside" yields the broken "can set aside us weeks of
+    confusion"). When a literal swap breaks grammar, rephrase instead (e.g. "spare":
+    "can spare us weeks of confusion"). See §5.
+- Do **NOT** touch the 体检报告 / 学习提示 / 闪光短语 tabs — only red errors and 推荐表达 are
+  in scope. When the issue dropdown (`name="error_type"`) shows 推荐表达 = 0 and no red-error
+  categories remain, the essay is clean.
+
+### Step 7 — Report and stop
+- Once there are no red errors and recommended-expression count is 0, report to the user:
+  score, word count, ranking, count of 提交次数 increments, and the list of changes made.
+- Do NOT make further edits or wait for confirmation — the user performs a final manual review.
+
+### Troubleshooting — observed stuck points & fixes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `tabs_new` → "No current window" | browser window closed | launch via OS (§9), wait 3–5s, retry (first retry may still fail) |
+| `tabs_list` → `[]` after a save | page re-render drops control | `browsers_list` → `user_open_tabs` → `tabs_claim` again (URL preserved) |
+| 未完成 DOM lacks deadlines | snapshot truncated | `tab_screenshot`, read deadline column from image |
+| write page → `?c=v2&a=wait` | assignment not started | read start time, skip to next-nearest deadline (§2) |
+| 修改 popup no show on 1st click | race/stale | re-snapshot, click 修改 again |
+| edit lost after 保存分析 | clicked stale node | re-snapshot AFTER typing, then click 保存分析 |
+| new `Xxx.Yyy` 标点警示 | leading space dropped | re-edit that sentence, restore leading space |
+| 推荐表达 won't hit 0 | literal swap breaks grammar | rephrase instead (§5) |
+| `a=caogao` shows old text | pre-submission autosave | use report `a=view&eid=&rid=` for live state |
+
+## Hard-won operational notes (always re-read `references/operations.md`)
+
+- "保存分析" increments the page's **提交次数** by 1 each click and scrolls back to top — the
+  teacher's record shows how many times you re-edited; mention this to the user.
+- Never paste; always `dom_cua_type`.
+- Re-snapshot DOM after every text edit before clicking any button (the popup button node goes
+  stale after typing).
+- After every save, the page re-renders and scroll resets to top — re-scroll + re-snapshot
+  before locating the next 修改 button.
+- Score/ranking interpretation: a typical good run lands ~90/100 with ranking in the top ~15%
+  of the class; 推荐表达 fixes are usually score-neutral, only red-error removals move the score.
