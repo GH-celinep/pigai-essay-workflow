@@ -8,22 +8,25 @@
 
 ## 给你的朋友：一条命令安装并运行
 
-### macOS / Linux（一条命令）
+### Windows（一条 PowerShell 命令，不需要 git）
 
 整行复制运行：
 
-```bash
-git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git /tmp/pigai && bash /tmp/pigai/install.sh && rm -rf /tmp/pigai
-```
-
-### Windows（一条 PowerShell 命令）
-
 ```powershell
-git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git $env:TEMP/pigai; powershell -ExecutionPolicy Bypass -File $env:TEMP/pigai/install.ps1; Remove-Item -Recurse -Force $env:TEMP/pigai
+$d="$env:TEMP\pigai"; $s="$env:USERPROFILE\.workbuddy\skills"; New-Item -ItemType Directory -Force -Path $s | Out-Null; Invoke-WebRequest "https://codeload.github.com/GH-celinep/pigai-essay-workflow/zip/refs/heads/main" -OutFile "$d.zip"; Expand-Archive "$d.zip" -DestinationPath $d -Force; Copy-Item -Recurse -Force "$d\pigai-essay-workflow-main\pigai-essay-workflow" "$s\"; Remove-Item -Recurse -Force "$d.zip",$d
 ```
 
-安装脚本会把 `pigai-essay-workflow/` 复制到 `~/.workbuddy/skills/`（Windows 为
-`%USERPROFILE%\.workbuddy\skills\`）。
+### macOS / Linux（一条命令）
+
+```bash
+mkdir -p ~/.workbuddy/skills && curl -L https://codeload.github.com/GH-celinep/pigai-essay-workflow/zip/refs/heads/main -o /tmp/pigai.zip && unzip -q /tmp/pigai.zip -d /tmp/pigai && cp -r /tmp/pigai/pigai-essay-workflow-main/pigai-essay-workflow ~/.workbuddy/skills/ && rm -rf /tmp/pigai /tmp/pigai.zip
+```
+
+（没有 `unzip` 可先装：`brew install unzip` 或 `apt install unzip`；也可以改用 git clone：
+`git clone --depth 1 https://github.com/GH-celinep/pigai-essay-workflow.git /tmp/pigai && cp -r /tmp/pigai/pigai-essay-workflow ~/.workbuddy/skills/ && rm -rf /tmp/pigai`）
+
+两条命令都会把 `pigai-essay-workflow/` 直接放进 `~/.workbuddy/skills/`（Windows 为
+`%USERPROFILE%\.workbuddy\skills\`）。仓库里的 `install.sh` / `install.ps1` 是手动下载仓库目录后的备选安装脚本，日常用上面的命令即可。
 
 ### 装好后怎么运行（两种方式都行）
 
@@ -50,7 +53,7 @@ pigai-essay-workflow/
 ├── SKILL.md            # 触发语 + 7 步主流程 + 卡壳速查表
 └── references/
     └── operations.md   # 浏览器连接/重连、URL 模式、逐句修改协议、核验
-install.sh              # macOS / Linux 一键安装
-install.ps1             # Windows 一键安装
+install.sh              # macOS / Linux 一键安装（备选）
+install.ps1             # Windows 一键安装（备选）
 README.md
 ```
