@@ -58,7 +58,7 @@ pigai-UI pitfalls that break naive automation.
 - 4. 进入后页面有两个 tab：**已完成** (`/index.php?c=write`) 和 **未完成** (`/index.php?c=write&a=waitComplete`)。
 - 备选（当直接 URL 不可达时）：用搜索引擎搜"批改网"，从结果进入官网 `pigai.org`，再走上面的"我的作文"路径。
 
-### Step 2 — Pick the assignment (algorithm)
+### Step 2 — Pick the assignment & select the class (algorithm)
 - Go to **未完成** (`a=waitComplete`). ⚠️ The visible-DOM snapshot often **omits the deadline
   text** (it gets truncated). Take a `tab_screenshot` and read the 作业号 / 标题 / 截止时间
   columns from the image to get the full list.
@@ -70,6 +70,23 @@ pigai-UI pitfalls that break naive automation.
     visible) is the target. Proceed with it.
   - ⚠️ 开始时间 ≈ 截止前 6 天, so an essay can have the nearest deadline yet still be locked.
     Never assume "nearest deadline = writable"; always confirm via the redirect check.
+- **2.4 选择班级（必做，漏掉必卡）** — 写作页底部「提交作文」左侧有一个班级下拉框，旁边显示
+  「班级：[下拉] 学号:xxx, 姓名:xxx。若不存在您的班级请选择"其他"或者联系我们客服」。
+  - 快照里形如：
+    `<select value="请选择班级" ...>请选择班级 <你的班级> 其他</select>`
+  - **判断是否已选好**：看 `selected-options` 的 label。是真实班级名（形如「XX班（20XX级）」）
+    → 已选好，跳过；是「请选择班级」或「其他」（且列表里存在真实班级）→ **必须重选**。
+  - **选择方法**（原生 select，没有 JS 注入可用，走键盘 —— 详见 `references/operations.md` §14）：
+    1. `dom_cua_click` 这个 select 节点 → 原生下拉展开；
+    2. `dom_cua_keypress` `Escape` → 收起下拉、保留焦点；
+    3. `dom_cua_keypress` `ArrowDown`（从「请选择班级」按一次即落到第一个真实班级）；
+    4. **重新快照 → 点掉弹出的「提示」对话框的「关闭」**（⚠️ 每次改动班级都会弹这个弹窗，
+       文案是「为了老师查看您的作业不丢失，请确认勿选错班级…」，不关掉会挡住后面的操作）；
+    5. 再次快照，确认 `selected-options` 的 label 已经是真实班级名。
+  - **多个真实班级**时：用户明确说过班级就选那个；没说就选第一个真实班级，并在最终汇报里
+    写明"本次提交到 X 班"，让用户可以纠正。
+  - ⚠️ 绝不要带着「请选择班级」去提交；也不要在有真实班级可选时选「其他」——作业会归属不到
+    老师名下。🐞 该步骤是同学实测时漏掉的卡点（2026-10-26 修复）。
 - Read the assignment requirements: title, and especially the **word-count range** (e.g.
   120–180). This bounds the draft.
 
@@ -80,6 +97,10 @@ pigai-UI pitfalls that break naive automation.
   final submission stands is the user's call (they do a final manual review afterward).
 
 ### Step 4 — Type it in and submit
+- **提交前先复核两件事**（顺序很重要）：
+  1. 快照确认班级 select 的 label 是**真实班级名**（不是「请选择班级」/「其他」）。没选好就回
+     Step 2.4 补选。
+  2. 页面上若有「提示」对话框（改班级或首次进入时可能出现）→ 先点「关闭」，否则点不到提交按钮。
 - On the writing page, the body is a `<textarea name="contents">`. 批改网 forbids paste
   ("正文禁止粘贴") — **use `dom_cua_type` to key the text in character by character**, never Ctrl+V.
 - Click **提交作文** (submit) directly. Per the user's standing instruction, do NOT stop to ask
@@ -119,6 +140,8 @@ Follow the exact protocol in `references/operations.md` §11 (per-sentence edit)
 ### Step 7 — Report and stop
 - Once there are no red errors and recommended-expression count is 0, report to the user:
   score, word count, ranking, count of 提交次数 increments, and the list of changes made.
+- **同时汇报本次提交的班级**（取自 Step 2.4 所选的班级名 + 页面显示的学号/姓名），让用户能确认
+  没有投到错误的班级——尤其是账号下存在多个班级时。
 - Do NOT make further edits or wait for confirmation — the user performs a final manual review.
 
 ### Troubleshooting — observed stuck points & fixes
@@ -129,6 +152,9 @@ Follow the exact protocol in `references/operations.md` §11 (per-sentence edit)
 | `tabs_list` → `[]` after a save | page re-render drops control | `browsers_list` → `user_open_tabs` → `tabs_claim` again (URL preserved) |
 | 未完成 DOM lacks deadlines | snapshot truncated | `tab_screenshot`, read deadline column from image |
 | write page → `?c=v2&a=wait` | assignment not started | read start time, skip to next-nearest deadline (§2) |
+| 提交作文点了没反应 / 找不到提交按钮 | 班级未选，或「提示」弹窗挡着 | 按 §14 选班级 → 点「关闭」→ 再提交 |
+| 作业提交了但老师看不到 / 班级为空 | 没选班级就提交 | 进写作页按 §14 补选班级后再提交 |
+| 改完班级后页面卡住 | 弹出的「提示」弹窗未关闭 | 快照 → 点「关闭」 |
 | 修改 popup no show on 1st click | race/stale | re-snapshot, click 修改 again |
 | edit lost after 保存分析 | clicked stale node | re-snapshot AFTER typing, then click 保存分析 |
 | new `Xxx.Yyy` 标点警示 | leading space dropped | re-edit that sentence, restore leading space |
