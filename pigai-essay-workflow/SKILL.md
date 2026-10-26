@@ -38,7 +38,9 @@ pigai-UI pitfalls that break naive automation.
 - Detailed pigai URL patterns, button-locating tricks, and gotchas live in
   `references/operations.md` — read it before the first run of a session.
 
-## Workflow (7 steps)
+## Workflow (7 steps + 2 branches)
+
+> 分支：Step 2.5（今天没有可写作文时 → 必须询问"改已完成 / 设提醒"）、Step 2.6（用户选择改已完成时）。
 
 ### Step 1 — 自动打开浏览器并进入 批改网
 - 目标：说出触发语后，agent 自己把浏览器打开并导航到批改网，**即使浏览器当前没有窗口也能自动启动程序**，用户无需预开任何页面。
@@ -91,6 +93,28 @@ pigai-UI pitfalls that break naive automation.
     老师名下。🐞 该步骤是同学实测时漏掉的卡点（2026-10-26 修复）。
 - Read the assignment requirements: title, and especially the **word-count range** (e.g.
   120–180). This bounds the draft.
+
+### Step 2.5 — 全部未开始时的分支（必须询问，不要只汇报就结束）
+- 若「未完成」里**每一篇**都重定向到 `a=wait`（今天没有可写的），**先列一张表**（作业号 / 标题 /
+  截止 / 开始时间），然后**必须用 `AskUserQuestion` 一次问两个问题**（不要默默结束）：
+  1. **要不要修改已完成的作文？** —— 给 2–3 个具体候选（优先最近提交的、或分数偏低的），
+     选项要写清作业号和分数，让用户能直接点。
+  2. **要不要设置提醒，在最近一篇开始时间自动开写？** —— 选项给出具体时间（最近一篇的
+     开始时间 +5 分钟；或当天上午 09:00 这类用户友好的时间），并说明会建成一次性定时任务。
+  第三个选项给「都不用，我只是看看」。
+- **用户要改已完成** → 走 Step 2.6，完成后直接接 Step 6；**不要**再跑 Step 3/4（不重新提交整篇）。
+- **用户要设提醒** → 用 `automation_update`（mode=`create`，scheduleType=`once`）建一次性任务：
+  `scheduledAt` = 约定的时间，`prompt` 必须**自包含**（见 `references/operations.md` §15 模板）。
+  多个待开始作文时**只给最近那一篇**建任务，不要一次建一串。建完把任务名和时间复述给用户。
+- 用户两样都不要 → 汇报清单，结束。
+
+### Step 2.6 — 修改已完成的作文（用户选择此分支时）
+- 去 **已完成** (`?c=write`)，确认页面上是「已完成」tab；用 `tab_screenshot` 读列表，按用户指定
+  或「最近提交 / 分数偏低」选一篇，点「查看」进入报告页
+  `?c=v2&a=view&eid=<eid>&rid=<rid>`。
+- ⚠️ 报告页**不会**弹班级选择，也不需要选班级——班级是提交时的属性，这里只改文字。
+- 只走 Step 6 的逐句修改协议（红色错误 + 推荐表达）；**不要在报告页重新提交整篇**。
+- 注意：每次「保存分析」都会让 提交次数 +1，老师端可见；动手前先把"会 +N 次"告诉用户。
 
 ### Step 3 — Write the essay (AI drafts it)
 - Compose an English essay that satisfies the prompt and the word-count range.
