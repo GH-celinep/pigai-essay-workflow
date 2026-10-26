@@ -171,7 +171,7 @@ After fixing everything:
 | write page → `?c=v2&a=wait` | assignment not started | read start time, skip to next-nearest deadline (§2) |
 | 提交作文点了没反应 / 找不到提交按钮 | 班级未选，或「提示」弹窗挡着 | select class (§14) → click 「关闭」 → submit |
 | 提交后老师看不到 / 班级为空 | submitted without selecting class | re-enter write page, select class (§14), resubmit |
-| 改完班级页面像"卡住" | 「提示」modal still open | re-snapshot → click 「关闭」 |
+| 改完班级页面像"卡住" | 「提示」modal still open | re-snapshot → click 「关闭」 (step §14.4 is automatic) |
 | 修改 popup no show on 1st click | race/stale | re-snapshot, click 修改 again |
 | edit lost after 保存分析 | clicked stale node | re-snapshot AFTER typing, then click 保存分析 |
 | new `Xxx.Yyy` 标点警示 | leading space dropped | re-edit, restore leading space |
@@ -208,11 +208,13 @@ After fixing everything:
 2. `dom_cua_keypress` `["Escape"]` → 收起下拉，select 保持焦点。
 3. `dom_cua_keypress` `["ArrowDown"]` → 从「请选择班级」下移一项 = 第一个真实班级。
    （如果当前停在「其他」，用 `ArrowUp` 回到真实班级。）
-4. ⚠️ **每次改动班级都会弹出「提示」对话框**：
+4. ⚠️ **选完立即自动点「关闭」**（这一步是自动的，不要停下来问用户、也不要跳过）：
+   每次改动班级都会弹出「提示」对话框 ——
    「为了老师查看您的作业不丢失，请确认勿选错班级；若不存在您的班级请选择其他」
-   → 重新快照 → 点「关闭」。**不关掉会挡住后面的提交按钮。**
+   → 重新快照 → 找到「关闭」按钮 → 立刻点掉。**不关掉会挡住后面的正文输入和提交按钮。**
+   若快照里没看到「关闭」，先滚动或重新快照一次再找；确认页面上没有任何遮罩弹窗才继续。
 5. 重新快照，确认 `selected-options` 的 label 已经是真实班级名
-   （例如 `<你的班级名>`）。
+   （例如 `<你的班级名>`），**并且「提示」弹窗已经消失**。
 
 **多班级时怎么选**：用户明确说过班级名 → 选它；没说 → 选第一个真实班级，并在最终汇报里写明
 「本次提交到 X 班」，让用户可以纠正。
