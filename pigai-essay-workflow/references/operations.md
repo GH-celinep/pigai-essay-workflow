@@ -166,8 +166,59 @@ After fixing everything:
 | `tabs_list` → `[]` after a save | page re-render drops control | `browsers_list` → `user_open_tabs` → `tabs_claim` again (URL preserved) |
 | 未完成 DOM lacks deadlines | snapshot truncated | `tab_screenshot`, read deadline column from image |
 | write page → `?c=v2&a=wait` | assignment not started | read start time, skip to next-nearest deadline (§2) |
+| 提交作文点了没反应 / 找不到提交按钮 | 班级未选，或「提示」弹窗挡着 | select class (§14) → click 「关闭」 → submit |
+| 提交后老师看不到 / 班级为空 | submitted without selecting class | re-enter write page, select class (§14), resubmit |
+| 改完班级页面像"卡住" | 「提示」modal still open | re-snapshot → click 「关闭」 |
 | 修改 popup no show on 1st click | race/stale | re-snapshot, click 修改 again |
 | edit lost after 保存分析 | clicked stale node | re-snapshot AFTER typing, then click 保存分析 |
 | new `Xxx.Yyy` 标点警示 | leading space dropped | re-edit, restore leading space |
 | 推荐表达 won't hit 0 | literal swap breaks grammar | rephrase instead (§5) |
 | `a=caogao` shows old text | pre-submission autosave | use report `a=view&eid=&rid=` for live state |
+
+## 14. 班级选择（写作页必做 — 2026-10-26 修复同学实测卡点）
+
+**症状**：点进作文后直接写正文、点「提交作文」，会卡住——提交按钮点了没反应，或者提交成功但
+班级为空（老师端看不到这份作业）。根因是写作页的「班级」下拉没选。
+
+**页面位置**：写作页**底部、「提交作文」按钮左侧**：
+
+```
+班级：[请选择班级 ▾]   学号:<学号>, 姓名:<姓名>。若不存在您的班级请选择"其他"或者联系我们客服
+```
+
+**DOM 特征**（可见 DOM 快照里）：
+
+```html
+<select node_id=N value="请选择班级" selected-options="[{...label:"请选择班级"}]">
+  请选择班级 <你的班级名> 其他
+</select>
+```
+
+- 选项顺序固定：`请选择班级`（占位）→ 真实班级（可能多个）→ `其他`。
+- ⚠️ 占位项和「其他」的 `value` 都可能是空字符串——**不要只靠 value 判断，要看
+  `selected-options` 里的 label**。
+- 若快照里没有这个 select，先把页面滚到底部（「提交作文」附近）再抓一次快照。
+
+**选择流程（键盘法，已在本机实测）**：
+
+1. `dom_cua_click` 这个 select 节点 → 展开原生下拉。
+2. `dom_cua_keypress` `["Escape"]` → 收起下拉，select 保持焦点。
+3. `dom_cua_keypress` `["ArrowDown"]` → 从「请选择班级」下移一项 = 第一个真实班级。
+   （如果当前停在「其他」，用 `ArrowUp` 回到真实班级。）
+4. ⚠️ **每次改动班级都会弹出「提示」对话框**：
+   「为了老师查看您的作业不丢失，请确认勿选错班级；若不存在您的班级请选择其他」
+   → 重新快照 → 点「关闭」。**不关掉会挡住后面的提交按钮。**
+5. 重新快照，确认 `selected-options` 的 label 已经是真实班级名
+   （例如 `<你的班级名>`）。
+
+**多班级时怎么选**：用户明确说过班级名 → 选它；没说 → 选第一个真实班级，并在最终汇报里写明
+「本次提交到 X 班」，让用户可以纠正。
+
+**红线**：
+
+- 绝不要带着「请选择班级」去提交。
+- 有真实班级可选时不要选「其他」。
+- 只有学生确实不属于任何班级时，才按官网提示选「其他」。
+
+**顺带核对账号**：班级旁边会显示「学号:xxx, 姓名:xxx」。在同学的机器上运行时，可以用它确认
+当前登录的是同学本人，而不是别人的账号。
