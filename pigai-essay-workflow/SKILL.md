@@ -1,203 +1,180 @@
 ---
 name: pigai-essay-workflow
-description: Automate the full 批改网 (pigai.org) English-essay workflow. Triggered by "开始帮我写作文", it automatically opens the browser, navigates to pigai.org, picks the nearest-deadline unfinished assignment, writes the essay, submits it, then fixes every red error and applies every recommended expression via each sentence's per-sentence "修改" popup. Use this skill when the user says "开始帮我写作文" / "帮我写作文" / "提交批改网作文" or otherwise wants an essay drafted, submitted, and polished on pigai.org. Do NOT use this skill for the 体检报告 (health-report) statistics — fixes are applied only through per-sentence edit popups.
+description: Model-agnostic workflow for 批改网 (pigai.org) English essays — pick the assignment, write it, submit, then fix every red error and recommended expression sentence by sentence. Works in ANY AI assistant: full-auto if the agent can drive a browser (WorkBuddy / Claude Code / Cursor), semi-auto if it can only run commands, or as a step-by-step coach in a plain chat window (豆包 / ChatGPT / 网页版). Trigger: 「开始帮我写作文」/「帮我写批改网作文」/「改一下这篇批改网作文」. Do NOT use for the 体检报告 (health report) statistics — only red errors and 推荐表达 are in scope.
 agent_created: true
 ---
 
-# 批改网英文作文工作流 (Pigai Essay Workflow)
+# 批改网英语作文工作流（模型无关版）
 
-## Overview
+## 这是什么
 
-On the trigger phrase **"开始帮我写作文"**, the agent auto-opens the browser — launching the browser app itself if no window is open — and navigates to pigai.org; the user does not need to pre-open anything. This skill encodes a fixed, repeatable browser workflow for 批改网 (pigai.org): draft an English
-essay for the user's assignment, submit it, then iterate on the system's per-sentence feedback
-(red errors + recommended expressions) using the "修改" popup beside each sentence. It is
-operational knowledge distilled from a fully executed run, including the non-obvious DOM and
-pigai-UI pitfalls that break naive automation.
+一套**不依赖具体工具**的批改网作业流程：选题 → 写 → 提交 → 逐句改错。
+核心是「判断规则 + 踩过的坑」，任何模型读了都能执行，只是自动化程度不同。
 
-## When to use
+**三种运行模式**（第一步必须先判断走哪个）：
 
-- User says "开始帮我写作文" (primary trigger), "帮我写作文", "帮我把这篇提交到批改网", or similar — the agent then auto-opens pigai.org and runs the full flow without any manual page setup.
-- User wants an existing pigai essay re-checked / fixed via the per-sentence edit buttons.
-- Do NOT trigger for general English writing help that has nothing to do with pigai.org.
+| 模式 | 谁适合 | 你能做什么 | 体验 |
+|---|---|---|---|
+| **A 全自动** | 有浏览器控制权的 agent（WorkBuddy / Claude Code + Playwright / Cursor） | 自己开浏览器、点、打字、提交 | 说一句话，全自动跑完 |
+| **B 半自动** | 只能跑命令的 agent（有终端但控制不了浏览器） | 生成脚本，用户执行，回传结果 | 一半自动 |
+| **C 纯对话** | 只有聊天窗口（豆包 / ChatGPT / 网页版助手） | 写作文 + 逐句告诉用户改哪句 | 你当教练，用户当手 |
 
-## Prerequisites
+> ⚠️ 默认按 **C**（最保守）。只有确认对方能操作浏览器，才走 A。
+> WorkBuddy 环境下的具体工具调用细节（重连、DOM 快照、坐标打码等）见 `references/operations.md`。
 
-- Browser control via the `mcp__browser__*` tools (DOM-CUA capable). 批改网 runs in the user's
-  **Edge extension** (browser_id obtained from `browsers_list`; for this author it happens to be 2).
-  Reconnect each session:
-  1. `mcp__browser__browsers_list` → note YOUR browser_id (commonly 2, but use whatever id is returned).
-  2. `mcp__browser__user_open_tabs` (browser_id=<id>) → list open tabs.
-  3. `mcp__browser__tabs_list` / `mcp__browser__tabs_claim` → claim the target tab.
-  4. **Reconnect routine (when the controlled tab drops):** after a save/navigation
-     `tabs_list` may return `[]`. Do NOT restart — recover: `browsers_list` → `user_open_tabs`
-     → `tabs_claim` again (URL preserved; display may show only the base domain). A tab created
-     via `tabs_new` is usually already controlled (no claim needed); only pre-existing user tabs
-     from `user_open_tabs` require claiming. See `references/operations.md` §1.
-- Load `mcp__browser__dom_cua_get_visible_dom`, `dom_cua_click`, `dom_cua_type`,
-  `dom_cua_keypress`, `cua_scroll`, `tab_goto`, `tab_screenshot`, `tabs_claim` as needed.
-- Detailed pigai URL patterns, button-locating tricks, and gotchas live in
-  `references/operations.md` — read it before the first run of a session.
+---
 
-## Workflow (7 steps + 2 branches)
+## 第一步：确认环境（不要跳）
 
-> 分支：Step 2.5（今天没有可写作文时 → 必须询问"改已完成 / 设提醒"）、Step 2.6（用户选择改已完成时）。
+- 用户说「你直接帮我弄」且你有浏览器工具 → **A**
+- 你有终端/文件能力，但控制不了浏览器 → **B**
+- 你只有聊天窗口（豆包、网页版） → **C**
 
-### Step 1 — 自动打开浏览器并进入 批改网
-- 目标：说出触发语后，agent 自己把浏览器打开并导航到批改网，**即使浏览器当前没有窗口也能自动启动程序**，用户无需预开任何页面。
-- 1. `mcp__browser__browsers_list` 列出可用浏览器（记下 browser_id；**首选带 user_tabs 的 Edge 扩展**，因为它保存着你的登录态；其次才是内置浏览器 `browser_id=1`）。
-- 2. 尝试拿到可操作标签：
-  - 若浏览器支持 user_tabs：`user_open_tabs` 看是否已有批改网标签 → 有则 `tabs_claim` 复用。
-  - 否则用 `tabs_new`（url=`https://www.pigai.org/index.php?c=write`）开一个 agent 控制的新标签。
-- 3. **若 `tabs_new` 返回 "No current window"（目标浏览器没有活动窗口）**——这是最常见的中断点，自动处理，不要停：
-  - 用 `Bash` / `PowerShell` 启动浏览器程序：
-    - Windows (Edge): `cmd /c start msedge` 或 `PowerShell: Start-Process msedge`
-    - macOS: `open -a "Microsoft Edge"`
-    - Linux: `microsoft-edge`
-  - 等待 3–5 秒让扩展连上，再 `browsers_list` 重新探测，回到第 2 步。⚠️ 首轮重试可能仍报
-    "No current window"（扩展尚未连上），再等 2–3 秒重试一次即可。`tabs_new` 成功后该标签通常
-    已是**受控标签**，无需再 `tabs_claim`，直接操作。
-  - 若启动后 `tabs_new` 仍失败，回退到内置浏览器（`browser_id=1`，desktop 类型）：`tabs_new` 开标签 goto pigai.org。注意内置浏览器**没有你的登录态**，会停在登录页——此时提示用户在该浏览器登录批改网后再继续。
-- 4. 进入后页面有两个 tab：**已完成** (`/index.php?c=write`) 和 **未完成** (`/index.php?c=write&a=waitComplete`)。
-- 备选（当直接 URL 不可达时）：用搜索引擎搜"批改网"，从结果进入官网 `pigai.org`，再走上面的"我的作文"路径。
+能力对照：
 
-### Step 2 — Pick the assignment & select the class (algorithm)
-- Go to **未完成** (`a=waitComplete`). ⚠️ The visible-DOM snapshot often **omits the deadline
-  text** (it gets truncated). Take a `tab_screenshot` and read the 作业号 / 标题 / 截止时间
-  columns from the image to get the full list.
-- Sort candidates by deadline ascending. Then, from the nearest, verify each one is open:
-  `tab_goto` `?c=v2&a=write&rid=<rid>`.
-  - If it redirects to `?c=v2&a=wait&rid=<rid>` ("开始时间为 … 距离写作开始时间还有 N天"),
-    the essay is **not open yet** — record its start time and move to the next-nearest deadline.
-  - The first `rid` whose writing page actually loads (title + requirements + body textarea
-    visible) is the target. Proceed with it.
-  - ⚠️ 开始时间 ≈ 截止前 6 天, so an essay can have the nearest deadline yet still be locked.
-    Never assume "nearest deadline = writable"; always confirm via the redirect check.
-- **2.4 选择班级（必做，漏掉必卡）** — 写作页底部「提交作文」左侧有一个班级下拉框，旁边显示
-  「班级：[下拉] 学号:xxx, 姓名:xxx。若不存在您的班级请选择"其他"或者联系我们客服」。
-  - 快照里形如：
-    `<select value="请选择班级" ...>请选择班级 <你的班级> 其他</select>`
-  - **判断是否已选好**：看 `selected-options` 的 label。是真实班级名（形如「XX班（20XX级）」）
-    → 已选好，跳过；是「请选择班级」或「其他」（且列表里存在真实班级）→ **必须重选**。
-  - **选择方法**（原生 select，没有 JS 注入可用，走键盘 —— 详见 `references/operations.md` §14）：
-    1. `dom_cua_click` 这个 select 节点 → 原生下拉展开；
-    2. `dom_cua_keypress` `Escape` → 收起下拉、保留焦点；
-    3. `dom_cua_keypress` `ArrowDown`（从「请选择班级」按一次即落到第一个真实班级）；
-    4. **选完立即自动点「关闭」（不需要问用户，别跳过）** —— ⚠️ 每次改动班级批改网都会弹
-       「提示」对话框（「为了老师查看您的作业不丢失，请确认勿选错班级…」）：
-       重新快照 → 找到「关闭」按钮 → 立刻点掉。不关掉它会挡住后面的正文输入和提交按钮。
-       若快照里没看到「关闭」，先滚动/重新快照一次再找；确认页面上已无任何遮罩弹窗才继续。
-    5. 再次快照，确认 `selected-options` 的 label 已经是真实班级名，**且页面无「提示」弹窗**。
-  - **多个真实班级**时：用户明确说过班级就选那个；没说就选第一个真实班级，并在最终汇报里
-    写明"本次提交到 X 班"，让用户可以纠正。
-  - ⚠️ 绝不要带着「请选择班级」去提交；也不要在有真实班级可选时选「其他」——作业会归属不到
-    老师名下。🐞 该步骤是同学实测时漏掉的卡点（2026-10-26 修复）。
-- Read the assignment requirements: title, and especially the **word-count range** (e.g.
-  120–180). This bounds the draft.
+| 能力 | WorkBuddy | Claude Code / Cursor | 纯聊天模型 |
+|---|---|---|---|
+| 打开网页 | `tab_goto` | Playwright MCP / puppeteer | ❌ 让用户自己开 |
+| 看页面结构 | `dom_cua_get_visible_dom` | 页面快照 / accessibility tree | ❌ 让用户截图或复制文字 |
+| 点击 / 输入 | `dom_cua_click` / `dom_cua_type` | `click` / `type` | ❌ 人工操作 |
+| 按键组合 | `dom_cua_keypress` keys=["Control","A"] | `press` | ❌ 人工按 |
+| 截图 | `tab_screenshot` | `screenshot` | ❌ 用户发图 |
 
-### Step 2.5 — 全部未开始时的分支（必须询问，不要只汇报就结束）
-- 若「未完成」里**每一篇**都重定向到 `a=wait`（今天没有可写的），**先列一张表**（作业号 / 标题 /
-  截止 / 开始时间），然后**必须用 `AskUserQuestion` 一次问两个问题**（不要默默结束）：
-  1. **要不要修改已完成的作文？** —— 给 2–3 个具体候选（优先最近提交的、或分数偏低的），
-     选项要写清作业号和分数，让用户能直接点。
-  2. **要不要设置提醒，在最近一篇开始时间自动开写？** —— 选项给出具体时间（最近一篇的
-     开始时间 +5 分钟；或当天上午 09:00 这类用户友好的时间），并说明会建成一次性定时任务。
-  第三个选项给「都不用，我只是看看」。
-- **用户要改已完成** → 走 Step 2.6，完成后直接接 Step 6；**不要**再跑 Step 3/4（不重新提交整篇）。
-- **用户要设提醒** → 用 `automation_update`（mode=`create`，scheduleType=`once`）建一次性任务：
-  `scheduledAt` = 约定的时间，`prompt` 必须**自包含**（见 `references/operations.md` §15 模板）。
-  多个待开始作文时**只给最近那一篇**建任务，不要一次建一串。建完把任务名和时间复述给用户。
-- 用户两样都不要 → 汇报清单，结束。
+---
 
-### Step 2.6 — 修改已完成的作文（用户选择此分支时）
-- 去 **已完成** (`?c=write`)，确认页面上是「已完成」tab；用 `tab_screenshot` 读列表，按用户指定
-  或「最近提交 / 分数偏低」选一篇，点「查看」进入报告页
-  `?c=v2&a=view&eid=<eid>&rid=<rid>`。
-- ⚠️ 报告页**不会**弹班级选择，也不需要选班级——班级是提交时的属性，这里只改文字。
-- 只走 Step 6 的逐句修改协议（红色错误 + 推荐表达）；**不要在报告页重新提交整篇**。
-- 注意：每次「保存分析」都会让 提交次数 +1，老师端可见；动手前先把"会 +N 次"告诉用户。
+## 核心规则（与工具无关，任何模式都必须遵守）
 
-### Step 3 — Write the essay (AI drafts it)
-- Compose an English essay that satisfies the prompt and the word-count range.
-- ⚠️ **AI-generation detection:** the assignment has "AI生成检测" enabled and the teacher can see
-  generation traces. Draft with this in mind but do NOT try to evade the detector. Whether the
-  final submission stands is the user's call (they do a final manual review afterward).
+1. **选题不能只看截止时间**。必须"已开始 + 截止最近"。批改网的**开始时间通常是截止前 6 天**。
+   打开写作页若跳到 `?c=v2&a=wait&rid=...`（显示"距离写作开始时间还有 N 天"），说明还没开放，换下一篇。
+2. **必须先选班级**。写作页底部「提交作文」左边有班级下拉框，选项是「请选择班级 / 你的真实班级… / 其他」。
+   - 判断看**下拉里显示的班级名**。
+   - 选完会弹「提示」框（"为了老师查看您的作业不丢失，请确认勿选错班级"）→ 点「关闭」再继续。
+   - ⚠️ **不选就提交 → 按钮点了没反应，或作业归属为空（老师看不到）**。
+   - 有真实班级可选时**不要选「其他」**。
+3. **正文禁止粘贴**。批改网有粘贴检测，必须逐字键入（自动模式用"输入文字"，不要用剪贴板）。
+4. **字数严格落在要求区间**（如 100–300）。写完先数一遍再提交。
+5. **提交后只看两样**：红色错误（拼写/搭配/句法/标点/冠词/连词/动词）和**推荐表达**。
+   **不要碰** 体检报告 / 学习提示 / 闪光短语 / 拓展辨析 / 近义词表达学习 —— 这些是信息类，改了不加分。
+6. **逐句改的机制**：报告页每句右侧有「修改」，点开是一个文本框（原句已填好），改完保存 → 系统重新分析该句，
+   同时"提交次数"+1（老师端能看到你改了几次）。**每次保存后页面会回到顶部，需要重新找下一句**。
+7. ⚠️ **最容易翻车的坑：句首空格**。文本框里的原句开头通常有一个空格，改的时候**必须保留**。
+   丢了会跟上句句号粘连（出现 `lecture.Minor` 这种），触发"标点警示"，反而扣分。
+8. ⚠️ **推荐表达不要机械替换**。系统有时给的替换会让句子不通，例如：
+   原句 `twenty minutes can save us weeks of confusion`，系统建议 `save → set aside`，
+   换进去变成 `can set aside us weeks`（不合法），此时应换说法：`can spare us weeks of confusion`。
+9. **AI 生成检测**：批改网有"AI生成检测"，老师端可能看到痕迹。**不要试图规避**——是否提交由用户决定，
+   并提醒用户自己再通读一遍。
+10. **报告页分数有动画**：数字从 0 递增，刚打开就截图会读到中间值（会看到 13.5、54 这种假分）。
+    等 2–3 秒再读，或读两次取稳定值。
 
-### Step 4 — Type it in and submit
-- **提交前先复核两件事**（顺序很重要）：
-  1. 快照确认班级 select 的 label 是**真实班级名**（不是「请选择班级」/「其他」）。没选好就回
-     Step 2.4 补选。
-  2. 页面上不应再有「提示」对话框——选完班级后 Step 2.4 已自动点过「关闭」，这里只是兜底：
-     若还在，再点一次「关闭」，否则点不到提交按钮。
-- On the writing page, the body is a `<textarea name="contents">`. 批改网 forbids paste
-  ("正文禁止粘贴") — **use `dom_cua_type` to key the text in character by character**, never Ctrl+V.
-- Click **提交作文** (submit) directly. Per the user's standing instruction, do NOT stop to ask
-  for confirmation before submitting.
-- If the visible word count does not refresh after typing, click the body once, type a space,
-  then backspace (the counter depends on keyup events).
+---
 
-### Step 5 — Reach the report page
-- After submission, open the report from **我的作文 → 已完成 → 查看** for that `rid`.
-- Report URL pattern: `https://www.pigai.org/index.php?c=v2&a=view&eid=<eid>&rid=<rid>`
-  (the `eid` appears in the 已完成 list links).
-- ⚠️ The "查看草稿" page (`/?c=v2&a=caogao&rid=`) shows **pre-submission autosave drafts, not the
-  current version** — ignore it for checking the live result.
+## 工作流（7 步）
 
-### Step 6 — Fix every sentence via its "修改" popup
-Follow the exact protocol in `references/operations.md` §11 (per-sentence edit). In short:
-1. **Re-scroll** to the target sentence — every "保存分析" jumps the page to the top and
-   re-renders, so previous-snapshot button nodes are invalid; always re-scroll then re-snapshot.
-2. **Snapshot** DOM; locate the 修改 button by matching its paired 去提问 `con=` text (§3).
-3. **Click 修改.** If the popup does not open, re-snapshot and click again (occasional race).
-4. In the popup `<textarea name="now_snt">`: click, select-all with `dom_cua_keypress`
-   keys=`["Control","A"]` — ⚠️ **the array chord form is required**; the strings `"Ctrl+A"` /
-   `"Control+A"` / `"Control+a"` are all rejected with "unsupported key". Then `dom_cua_type` the
-   corrected sentence — **keep the original leading space** (dropping it fuses the prior period,
-   e.g. `lecture.Minor`, triggering a 标点警示).
-5. **Re-snapshot DOM** (the 保存分析 button is now stale) and click 保存分析.
-6. **Re-snapshot to verify**: confirm the new wording landed and no new 标点警示 appeared. If a
-   warning shows, immediately re-edit that sentence to restore the lost leading space.
-- Handle two kinds of feedback:
-  - **Red errors** (拼写/搭配/句法/标点): rewrite the sentence to clear them.
-  - **推荐表达** (recommended expressions): apply the suggested wording, BUT judge first — some
-    are mechanically wrong (e.g. "save → set aside" yields the broken "can set aside us weeks of
-    confusion"). When a literal swap breaks grammar, rephrase instead (e.g. "spare":
-    "can spare us weeks of confusion"). See §5.
-- Do **NOT** touch the 体检报告 / 学习提示 / 闪光短语 tabs — only red errors and 推荐表达 are
-  in scope. When the issue dropdown (`name="error_type"`) shows 推荐表达 = 0 and no red-error
-  categories remain, the essay is clean.
+### Step 1 — 进批改网「我的作文」
+- A：直接打开 `https://www.pigai.org/index.php?c=write`（已登录可直接用；没登录提示用户先登录）。
+- B/C：让用户打开这个网址，登录后**截图或复制页面内容**给你。
 
-### Step 7 — Report and stop
-- Once there are no red errors and recommended-expression count is 0, report to the user:
-  score, word count, ranking, count of 提交次数 increments, and the list of changes made.
-- **同时汇报本次提交的班级**（取自 Step 2.4 所选的班级名 + 页面显示的学号/姓名），让用户能确认
-  没有投到错误的班级——尤其是账号下存在多个班级时。
-- Do NOT make further edits or wait for confirmation — the user performs a final manual review.
+### Step 2 — 选题（算法）
+1. 进「未完成」（`?c=write&a=waitComplete`）。
+2. 按**截止时间从近到远**排。
+3. 逐个验证是否已开始：打开 `?c=v2&a=write&rid=<作业号>`；
+   - 跳到 `?c=v2&a=wait` → 没开始，跳下一篇；
+   - 正常出写作页（题目 + 要求 + 正文框）→ 就是它。
+4. 读出**题目**和**字数区间**。
 
-### Troubleshooting — observed stuck points & fixes
+> A 模式注意：DOM 快照常截断截止时间，直接截图读列表更准。
 
-| Symptom | Cause | Fix |
+### Step 2.5 — 选班级（必做）
+见核心规则 2。
+- A：找到那个 `<select>`（选项含「请选择班级」）→ 点开 → `Esc` 收起 → `↓` 选第一个真实班级
+  → **立刻把弹出的「提示」框点「关闭」** → 复查下拉里已是真实班级名。
+- B/C：明确告诉用户"点开班级下拉，选你自己的班，弹窗点关闭，然后告诉我班级名"。
+
+### Step 3 — 写作文
+按题目 + 字数区间写：
+- 结构清楚（总-分-总 / 对比论证），有具体例子；
+- 长短句交替，避免全篇简单句；
+- **不要堆生僻词**——批改网会挑错；
+- 严格控字数。
+
+### Step 4 — 提交
+- A：逐字键入正文 → 点「提交作文」→ **直接提交，不要再问用户确认**（用户默认意图就是提交）。
+- B/C：把全文放代码块发出来（方便整段改用逐字打），提醒"禁止粘贴，需要逐字打"。
+
+> 字数统计不刷新时：在正文里点一下、敲空格、再退格，计数会重算。
+
+### Step 5 — 进报告页
+- 地址形如 `?c=v2&a=view&eid=<eid>&rid=<rid>`。
+- ⚠️「查看草稿」(`a=caogao`) 是**提交前的旧稿**，别拿它判断。
+
+### Step 6 — 逐句改（核心）
+对每一句：
+1. 找该句右侧的「修改」（紧挨一个「去提问」链接，链接里带句子原文，可用来定位）。
+2. 点开 → 文本框里是原句（**带一个前导空格**）。
+3. 改 → 保存。
+4. **保存后页面跳回顶部**，重新找下一句。
+5. 改完复查：有没有冒出新的"标点警示"（说明句首空格丢了，改回去）。
+
+两类处理：
+- **红色错误** → 重写该句，把错误消掉。
+- **推荐表达** → 先判断能不能直接用；不能用就换说法（见规则 8）。
+
+### Step 7 — 汇报
+告诉用户：**分数、字数、班级排名、提交次数增加了多少、改了哪几句、提交到了哪个班**。
+然后停手，让用户自己通读一遍。
+
+---
+
+## 三种模式怎么落地
+
+### A 全自动（有浏览器控制权）
+按 1→7 跑完。注意：
+- 每次保存分析后**重新读页面**再点下一个按钮（旧元素会失效）。
+- 分数读完等 2–3 秒（动画）。
+- 全程不要停下问"要不要提交"。
+
+### B 半自动（只有终端）
+1. 帮用户把页面内容抓下来（`curl` 带 cookie，或用用户截图）。
+2. 你负责：写作文、判断每句怎么改、给出"原句 → 改后"清单。
+3. 登录态/验证码仍需人工。
+
+### C 纯对话（豆包 / 网页版）
+你当教练，输出必须**可直接抄走**：
+1. 先要：作业题目 + 字数要求（截图或复制）。
+2. 给出作文全文（一个代码块）。
+3. 用户提交后，要报告页「按句点评」的截图（或把每句和错误描述复制给你）。
+4. 输出**编号清单**：
+   ```
+   第 3 句
+   原文：……（含开头空格）
+   改成：……（可直接复制）
+   原因：搭配错误——save sb sth 不成立
+   ```
+5. 一次给 3–5 句，别一口气给 20 句。
+6. 用户改完发新截图，你继续，直到他说"没有红色了"。
+
+---
+
+## 故障速查
+
+| 现象 | 原因 | 怎么办 |
 |---|---|---|
-| `tabs_new` → "No current window" | browser window closed | launch via OS (§9), wait 3–5s, retry (first retry may still fail) |
-| `tabs_list` → `[]` after a save | page re-render drops control | `browsers_list` → `user_open_tabs` → `tabs_claim` again (URL preserved) |
-| 未完成 DOM lacks deadlines | snapshot truncated | `tab_screenshot`, read deadline column from image |
-| write page → `?c=v2&a=wait` | assignment not started | read start time, skip to next-nearest deadline (§2) |
-| 提交作文点了没反应 / 找不到提交按钮 | 班级未选，或「提示」弹窗挡着 | 按 §14 选班级 → 点「关闭」→ 再提交 |
-| 作业提交了但老师看不到 / 班级为空 | 没选班级就提交 | 进写作页按 §14 补选班级后再提交 |
-| 改完班级后页面卡住 | 弹出的「提示」弹窗未关闭 | 快照 → 点「关闭」 |
-| 修改 popup no show on 1st click | race/stale | re-snapshot, click 修改 again |
-| edit lost after 保存分析 | clicked stale node | re-snapshot AFTER typing, then click 保存分析 |
-| new `Xxx.Yyy` 标点警示 | leading space dropped | re-edit that sentence, restore leading space |
-| 推荐表达 won't hit 0 | literal swap breaks grammar | rephrase instead (§5) |
-| `a=caogao` shows old text | pre-submission autosave | use report `a=view&eid=&rid=` for live state |
+| 提交按钮点了没反应 | 班级没选 | 选班级 → 关提示框 → 再提交 |
+| 提交了老师看不到 / 班级为空 | 没选班级就交了 | 回写作页补选班级再交 |
+| 改完班级页面像卡住 | 「提示」框没关 | 点「关闭」 |
+| 打开写作页跳到 wait 页 | 作业还没开始 | 换下一篇（开始=截止前6天） |
+| 改完没生效 | 保存按钮点的是失效元素 | 重新读页面再点保存 |
+| 冒出 `Xxx.Yyy` 标点警示 | 句首空格丢了 | 重改该句，补回空格 |
+| 推荐表达一直清不掉 | 机械替换导致病句 | 换说法，别硬套 |
+| 读到的分数很怪（13.5/54） | 分数动画中间值 | 等 2–3 秒再读 |
+| 「查看草稿」内容不对 | 那是提交前旧稿 | 用报告页看真实状态 |
 
-## Hard-won operational notes (always re-read `references/operations.md`)
+---
 
-- "保存分析" increments the page's **提交次数** by 1 each click and scrolls back to top — the
-  teacher's record shows how many times you re-edited; mention this to the user.
-- Never paste; always `dom_cua_type`.
-- Re-snapshot DOM after every text edit before clicking any button (the popup button node goes
-  stale after typing).
-- After every save, the page re-renders and scroll resets to top — re-scroll + re-snapshot
-  before locating the next 修改 button.
-- Score/ranking interpretation: a typical good run lands ~90/100 with ranking in the top ~15%
-  of the class; 推荐表达 fixes are usually score-neutral, only red-error removals move the score.
+## 一句话版本（给用户看的）
+
+> 打开批改网「我的作文」→ 挑最近截止且已开始的那篇 → **先选班级** → 逐字打正文 → 提交 →
+> 在报告页按每句右侧「修改」清掉红色错误和推荐表达（改的时候保留句首空格）→ 完事。
+
+> 想直接把规则喂给别的模型：见 `references/universal-prompt.md`（整段复制粘贴即可）。
