@@ -77,6 +77,9 @@ On the report page, every sentence has two paired links in order:
 3. **Save scrolls to top.** "保存分析" increments 提交次数 by 1 and jumps the page to the top.
    After saving, re-scroll to locate the next sentence's 修改 button.
 4. **No paste.** Body editor and popups both reject paste. Always `dom_cua_type`.
+5. **Key-chord syntax (实测坑).** `dom_cua_keypress` 的组合键必须写成**数组和弦**：
+   `keys=["Control","A"]`、`["Control","V"]`。字符串写法 `"Ctrl+A"` / `"Control+A"` /
+   `"Control+a"` 都会报 `unsupported key`。单键仍然用字符串：`"Escape"`、`"ArrowDown"`。
 
 ## 5. Recommended-expression judgment (do not apply blindly)
 
@@ -139,9 +142,9 @@ This is the single most failure-prone part. Follow exactly, in order:
    去提问 `con=` text (see §3).
 3. **Click 修改.** If the popup does not appear, re-snapshot and click 修改 again — it
    occasionally needs two clicks due to a render race.
-4. In the popup `<textarea name="now_snt">`: click it, `Ctrl+A` to select all, then
-   `dom_cua_type` the corrected sentence. **Keep the original leading space**
-   (e.g. type `" Minor steps…"`, not `"Minor steps…"`).
+4. In the popup `<textarea name="now_snt">`: click it, select all with `dom_cua_keypress`
+   keys=`["Control","A"]`（数组和弦写法，见 §4.5）, then `dom_cua_type` the corrected sentence.
+   **Keep the original leading space** (e.g. type `" Minor steps…"`, not `"Minor steps…"`).
 5. **Re-snapshot DOM** — the 保存分析 button node is now stale — then click 保存分析.
 6. **Re-snapshot to verify**: confirm the new wording landed in the body and that no new
    标点警示 appeared (e.g. `lecture.Minor` = prior period fused with this sentence because the
