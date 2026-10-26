@@ -80,9 +80,11 @@ pigai-UI pitfalls that break naive automation.
     1. `dom_cua_click` 这个 select 节点 → 原生下拉展开；
     2. `dom_cua_keypress` `Escape` → 收起下拉、保留焦点；
     3. `dom_cua_keypress` `ArrowDown`（从「请选择班级」按一次即落到第一个真实班级）；
-    4. **重新快照 → 点掉弹出的「提示」对话框的「关闭」**（⚠️ 每次改动班级都会弹这个弹窗，
-       文案是「为了老师查看您的作业不丢失，请确认勿选错班级…」，不关掉会挡住后面的操作）；
-    5. 再次快照，确认 `selected-options` 的 label 已经是真实班级名。
+    4. **选完立即自动点「关闭」（不需要问用户，别跳过）** —— ⚠️ 每次改动班级批改网都会弹
+       「提示」对话框（「为了老师查看您的作业不丢失，请确认勿选错班级…」）：
+       重新快照 → 找到「关闭」按钮 → 立刻点掉。不关掉它会挡住后面的正文输入和提交按钮。
+       若快照里没看到「关闭」，先滚动/重新快照一次再找；确认页面上已无任何遮罩弹窗才继续。
+    5. 再次快照，确认 `selected-options` 的 label 已经是真实班级名，**且页面无「提示」弹窗**。
   - **多个真实班级**时：用户明确说过班级就选那个；没说就选第一个真实班级，并在最终汇报里
     写明"本次提交到 X 班"，让用户可以纠正。
   - ⚠️ 绝不要带着「请选择班级」去提交；也不要在有真实班级可选时选「其他」——作业会归属不到
@@ -100,7 +102,8 @@ pigai-UI pitfalls that break naive automation.
 - **提交前先复核两件事**（顺序很重要）：
   1. 快照确认班级 select 的 label 是**真实班级名**（不是「请选择班级」/「其他」）。没选好就回
      Step 2.4 补选。
-  2. 页面上若有「提示」对话框（改班级或首次进入时可能出现）→ 先点「关闭」，否则点不到提交按钮。
+  2. 页面上不应再有「提示」对话框——选完班级后 Step 2.4 已自动点过「关闭」，这里只是兜底：
+     若还在，再点一次「关闭」，否则点不到提交按钮。
 - On the writing page, the body is a `<textarea name="contents">`. 批改网 forbids paste
   ("正文禁止粘贴") — **use `dom_cua_type` to key the text in character by character**, never Ctrl+V.
 - Click **提交作文** (submit) directly. Per the user's standing instruction, do NOT stop to ask
