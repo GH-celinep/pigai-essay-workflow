@@ -121,9 +121,11 @@ Follow the exact protocol in `references/operations.md` §11 (per-sentence edit)
    re-renders, so previous-snapshot button nodes are invalid; always re-scroll then re-snapshot.
 2. **Snapshot** DOM; locate the 修改 button by matching its paired 去提问 `con=` text (§3).
 3. **Click 修改.** If the popup does not open, re-snapshot and click again (occasional race).
-4. In the popup `<textarea name="now_snt">`: click, `Ctrl+A`, then `dom_cua_type` the corrected
-   sentence — **keep the original leading space** (dropping it fuses the prior period, e.g.
-   `lecture.Minor`, triggering a 标点警示).
+4. In the popup `<textarea name="now_snt">`: click, select-all with `dom_cua_keypress`
+   keys=`["Control","A"]` — ⚠️ **the array chord form is required**; the strings `"Ctrl+A"` /
+   `"Control+A"` / `"Control+a"` are all rejected with "unsupported key". Then `dom_cua_type` the
+   corrected sentence — **keep the original leading space** (dropping it fuses the prior period,
+   e.g. `lecture.Minor`, triggering a 标点警示).
 5. **Re-snapshot DOM** (the 保存分析 button is now stale) and click 保存分析.
 6. **Re-snapshot to verify**: confirm the new wording landed and no new 标点警示 appeared. If a
    warning shows, immediately re-edit that sentence to restore the lost leading space.
